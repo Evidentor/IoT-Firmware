@@ -1,0 +1,49 @@
+# Build artifacts
+/build/
+/*.elf
+/*.bin
+/*.map
+/*.hex
+
+# CMake files
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/install_manifest.txt
+
+# Project-generated configuration
+/sdkconfig
+/sdkconfig.old
+
+# Managed components (fetched from remote repos)
+**/managed_components/
+**/components/*/.empty  # Prevent tracking of placeholder files
+
+# ESP-IDF-generated project files
+/.project/
+/.settings/
+/.idea/
+/.vscode/
+
+# Python virtual environment
+/venv/
+/.env/
+
+# Logs and temporary files
+*.log
+*.pyc
+__pycache__/
+*.swp
+
+# CLion or VS Code IDE configs (optional)
+*.iml
+.idea/
+.vscode/
+
+# Arduino library build artifacts if you use Arduino as component
+*.a
+lib/
+
+# Other miscellaneous
+*.orig
+.DS_Store
