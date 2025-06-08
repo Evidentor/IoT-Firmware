@@ -1,4 +1,5 @@
-idf_component_register(SRCS "ev-esp32-rc522-0625.c"
+idf_component_register(
+        SRCS "ev-esp32-rc522-0625.c"
         INCLUDE_DIRS "."
-        REQUIRES rfid-adapter
+        REQUIRES rfid-adapter wifi
 )
