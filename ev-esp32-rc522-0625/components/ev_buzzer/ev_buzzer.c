@@ -3,15 +3,16 @@
 #include "driver/ledc.h"
 #include "esp_err.h"
 
-#define BUZZER_GPIO    16
-#define BUZZER_FREQ    2000 // 2kHz tone
+// TODO: Hardcoded values, make them configurable
+#define BUZZER_GPIO    21
+#define BUZZER_FREQ    1800 // 1.8kHz tone
 
 #define LEDC_TIMER              LEDC_TIMER_0
 #define LEDC_MODE               LEDC_LOW_SPEED_MODE
 #define LEDC_OUTPUT_IO          (BUZZER_GPIO) // Define the output GPIO
 #define LEDC_CHANNEL            LEDC_CHANNEL_0
 #define LEDC_DUTY_RES           LEDC_TIMER_10_BIT // Set duty resolution to 10 bits
-#define LEDC_DUTY               (512) // Set duty to 50%. (2 ** 10) * 50% = 512
+#define LEDC_DUTY               (64) // Set duty to 50%. (2 ** 10) * 6.25% = 64
 #define LEDC_FREQUENCY          (BUZZER_FREQ) // Frequency in Hertz. Set frequency at 2 kHz
 
 void buzzer_init(void) {

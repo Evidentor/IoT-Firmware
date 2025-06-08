@@ -17,6 +17,11 @@ extern "C" void init_rfid() {
     ESP_LOGI(TAG, "RC522 Initialized");
 }
 
+void reinit_rfid() {
+    rfid.PCD_Init();
+    ESP_LOGI(TAG, "RC522 Reinitialized");
+}
+
 extern "C" void check_for_new_card(void (*callback)(const byte* cardId)) {
     if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
         callback(rfid.uid.uidByte);
