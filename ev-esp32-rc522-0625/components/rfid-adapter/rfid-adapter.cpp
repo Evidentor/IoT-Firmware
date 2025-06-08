@@ -14,7 +14,7 @@ extern "C" void init_rfid() {
     Serial.println("RC522 Initialized. Bring a card near...");
 }
 
-extern "C" void check_for_new_card(void (*callback)(byte* cardId)) {
+extern "C" void check_for_new_card(void (*callback)(const byte* cardId)) {
     if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
         Serial.print("Card UID: ");
         for (byte i = 0; i < rfid.uid.size; i++) {

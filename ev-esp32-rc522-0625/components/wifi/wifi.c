@@ -6,156 +6,206 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
-#include "../../../../../../../../../esp/esp-idf/components/wifi_provisioning/src/wifi_provisioning_priv.h"
-#include "rom/ets_sys.h"
 #include "wifi_provisioning/manager.h"
 #include "wifi_provisioning/scheme_softap.h"
 
-#define EXAMPLE_ESP_WIFI_SSID "myssid"
-#define EXAMPLE_ESP_WIFI_CHANNEL 1
-#define EXAMPLE_ESP_WIFI_PASS "mypassword"
-#define EXAMPLE_MAX_STA_CONN 3
-#define WIFI_MAX_RETRY_NUM 3
+/* Signal Wi-Fi events on this event-group */
+const int WIFI_CONNECTED_EVENT = BIT0;
+static EventGroupHandle_t wifi_event_group;
 
 static const char *TAG = "wifi";
-static int s_retry_num = 0;
-wifi_config_t wifi_config;
 bool wifi_connected = false;
 
-static void wifi_event_handler(void* arg, esp_event_base_t event_base,
-                                    int32_t event_id, void* event_data) {
-    if (event_id == WIFI_EVENT_AP_STACONNECTED) {
-        wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
-        ESP_LOGI(TAG, "station "MACSTR" join, AID=%d",
-                 MAC2STR(event->mac), event->aid);
-    } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
-        wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
-        ESP_LOGI(TAG, "station "MACSTR" leave, AID=%d, reason=%d",
-                 MAC2STR(event->mac), event->aid, event->reason);
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        ESP_LOGI(TAG, "Started listening for DPP Authentication");
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry_num < WIFI_MAX_RETRY_NUM) {
-            esp_wifi_connect();
-            s_retry_num++;
-            ESP_LOGI(TAG, "retry to connect to the AP");
+/* Event handler for catching system events */
+static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+    if (event_base == WIFI_PROV_EVENT) {
+        switch (event_id) {
+            case WIFI_PROV_START:
+                ESP_LOGI(TAG, "Provisioning started");
+                break;
+            case WIFI_PROV_CRED_RECV: {
+                wifi_sta_config_t *wifi_sta_cfg = (wifi_sta_config_t *) event_data;
+                ESP_LOGI(TAG, "Received Wi-Fi credentials\n\tSSID : %s", (const char *) wifi_sta_cfg->ssid);
+                break;
+            }
+            case WIFI_PROV_CRED_FAIL: {
+                wifi_prov_sta_fail_reason_t *reason = (wifi_prov_sta_fail_reason_t *) event_data;
+                ESP_LOGE(TAG, "Provisioning failed!\n\tReason : %s"
+                         "\n\tPlease reset to factory and retry provisioning",
+                         (*reason == WIFI_PROV_STA_AUTH_ERROR) ?
+                         "Wi-Fi station authentication failed" : "Wi-Fi access-point not found");
+#ifdef CONFIG_EXAMPLE_RESET_PROV_MGR_ON_FAILURE
+                /* Reset the state machine on provisioning failure.
+                 * This is enabled by the CONFIG_EXAMPLE_RESET_PROV_MGR_ON_FAILURE configuration.
+                 * It allows the provisioning manager to retry the provisioning process
+                 * based on the number of attempts specified in wifi_conn_attempts. After attempting
+                 * the maximum number of retries, the provisioning manager will reset the state machine
+                 * and the provisioning process will be terminated.
+                 */
+                wifi_prov_mgr_reset_sm_state_on_failure();
+#endif
+                break;
+            }
+            case WIFI_PROV_CRED_SUCCESS:
+                ESP_LOGI(TAG, "Provisioning successful");
+                break;
+            case WIFI_PROV_END:
+                /* De-initialize manager once provisioning is finished */
+                wifi_prov_mgr_deinit();
+                break;
+            default:
+                break;
         }
-        ESP_LOGI(TAG, "connect to the AP fail");
-        wifi_connected = false;
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_CONNECTED) {
-        wifi_prov_mgr_done();
-        wifi_prov_mgr_stop_provisioning();
-        ESP_LOGI(TAG, "Successfully connected to the AP ssid : %p ", wifi_config.sta.ssid);
-        wifi_connected = true;
+    } else if (event_base == WIFI_EVENT) {
+        switch (event_id) {
+            case WIFI_EVENT_STA_START:
+                esp_wifi_connect();
+                break;
+            case WIFI_EVENT_STA_CONNECTED:
+                ESP_LOGI(TAG, "Connected to WiFi");
+                wifi_connected = true;
+                break;
+            case WIFI_EVENT_STA_DISCONNECTED:
+                ESP_LOGI(TAG, "Disconnected. Connecting to the AP again...");
+                esp_wifi_connect();
+                wifi_connected = false;
+                break;
+            case WIFI_EVENT_AP_STACONNECTED:
+                ESP_LOGI(TAG, "SoftAP transport: Connected!");
+                break;
+            case WIFI_EVENT_AP_STADISCONNECTED:
+                ESP_LOGI(TAG, "SoftAP transport: Disconnected!");
+                break;
+            default:
+                break;
+        }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
-        ESP_LOGI("WIFI", "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
+        const ip_event_got_ip_t *event = (ip_event_got_ip_t *) event_data;
+        ESP_LOGI(TAG, "Connected with IP Address:" IPSTR, IP2STR(&event->ip_info.ip));
+        /* Signal main application to continue execution */
+        xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_EVENT);
         wifi_connected = true;
+    } else if (event_base == PROTOCOMM_SECURITY_SESSION_EVENT) {
+        switch (event_id) {
+            case PROTOCOMM_SECURITY_SESSION_SETUP_OK:
+                ESP_LOGI(TAG, "Secured session established!");
+                break;
+            case PROTOCOMM_SECURITY_SESSION_INVALID_SECURITY_PARAMS:
+                ESP_LOGE(TAG, "Received invalid security parameters for establishing secure session!");
+                break;
+            case PROTOCOMM_SECURITY_SESSION_CREDENTIALS_MISMATCH:
+                ESP_LOGE(TAG, "Received incorrect username and/or PoP for establishing secure session!");
+                break;
+            default:
+                break;
+        }
     }
+}
+
+static void get_device_service_name(char *service_name, size_t max) {
+    uint8_t eth_mac[6];
+    const char *ssid_prefix = "PROV_";
+    esp_wifi_get_mac(WIFI_IF_STA, eth_mac);
+    snprintf(service_name, max, "%s%02X%02X%02X",
+             ssid_prefix, eth_mac[3], eth_mac[4], eth_mac[5]);
+}
+
+void init_nvs(void) {
+    /* Initialize NVS partition */
+    const esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        /* NVS partition was truncated
+         * and needs to be erased */
+        ESP_ERROR_CHECK(nvs_flash_erase());
+
+        /* Retry nvs_flash_init */
+        ESP_ERROR_CHECK(nvs_flash_init());
+    }
+}
+
+static void wifi_init_sta(void) {
+    /* Start Wi-Fi in station mode */
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_start());
 }
 
 void init_wifi(void) {
     // Initialize NVS
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
+    init_nvs();
 
-    // Initialize networking stack
+    /* Initialize TCP/IP */
     ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_ap();
 
-    // Initialize Wi-Fi with default config
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    /* Initialize the event loop */
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    wifi_event_group = xEventGroupCreate();
+
+    /* Register our event handler for Wi-Fi, IP and Provisioning related events */
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
+    ESP_ERROR_CHECK(
+        esp_event_handler_register(PROTOCOMM_SECURITY_SESSION_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
+
+    /* Initialize Wi-Fi including netif with default config */
+    esp_netif_create_default_wifi_sta();
+    esp_netif_create_default_wifi_ap();
+    const wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                        ESP_EVENT_ANY_ID,
-                                                        &wifi_event_handler,
-                                                        NULL,
-                                                        NULL));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
-                                                        ESP_EVENT_ANY_ID,
-                                                        &wifi_event_handler,
-                                                        NULL,
-                                                        NULL));
-
-    wifi_config_t wifi_config = {
-        .ap = {
-            .ssid = EXAMPLE_ESP_WIFI_SSID,
-            .ssid_len = strlen(EXAMPLE_ESP_WIFI_SSID),
-            .channel = EXAMPLE_ESP_WIFI_CHANNEL,
-            .password = EXAMPLE_ESP_WIFI_PASS,
-            .max_connection = EXAMPLE_MAX_STA_CONN,
-            .authmode = WIFI_AUTH_WPA2_PSK,
-// #ifdef CONFIG_ESP_WIFI_SOFTAP_SAE_SUPPORT
-//             .authmode = WIFI_AUTH_WPA3_PSK,
-//             .sae_pwe_h2e = WPA3_SAE_PWE_BOTH,
-// #else /* CONFIG_ESP_WIFI_SOFTAP_SAE_SUPPORT */
-//             .authmode = WIFI_AUTH_WPA2_PSK,
-// #endif
-            .pmf_cfg = {
-                .required = true,
-            },
-        },
-    };
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-
-    ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
-             EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS, EXAMPLE_ESP_WIFI_CHANNEL);
-
-    // Init provisioning service
-    wifi_prov_mgr_config_t config = {
+    /* Configuration for the provisioning manager */
+    const wifi_prov_mgr_config_t config = {
         .scheme = wifi_prov_scheme_softap,
         .scheme_event_handler = WIFI_PROV_EVENT_HANDLER_NONE
     };
-    ESP_ERROR_CHECK( wifi_prov_mgr_init(config) );
 
-    // Start provisioning service
-    wifi_prov_security_t security = WIFI_PROV_SECURITY_1;
-    const char *pop = "abcd1234";
-    ESP_ERROR_CHECK( wifi_prov_mgr_start_provisioning(security, pop, EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS) );
+    /* Initialize provisioning manager with the
+     * configuration parameters set above */
+    ESP_ERROR_CHECK(wifi_prov_mgr_init(config));
 
-    // Wait for service to complete
-    ESP_LOGI(TAG, "Waiting for provisioning to complete...");
-    wifi_prov_mgr_wait();
+    /* Let's find out if the device is provisioned */
+    bool provisioned = false;
+#ifdef CONFIG_EXAMPLE_RESET_PROVISIONED
+    ESP_LOGI(TAG, "Resetting the provisioning service...");
+    wifi_prov_mgr_reset_provisioning();
+#endif
+    ESP_ERROR_CHECK(wifi_prov_mgr_is_provisioned(&provisioned));
 
-    // Finally de-initialize the manager
-    ESP_LOGI(TAG, "De-initializing the manager...");
-    wifi_prov_mgr_deinit();
+    /* If device is not yet provisioned start provisioning service */
+    if (!provisioned) {
+        ESP_LOGI(TAG, "Starting provisioning");
 
-    // // Configure HTTP provisioning scheme (SoftAP + HTTP server)
-    // wifi_prov_mgr_config_t config = {
-    //     .scheme = wifi_prov_scheme_softap,
-    //     .scheme_event_handler = WIFI_PROV_EVENT_HANDLER_NONE
-    // };
-    // ESP_ERROR_CHECK(wifi_prov_mgr_init(config));
-    //
-    // bool provisioned = false;
-    // ESP_ERROR_CHECK(wifi_prov_mgr_is_provisioned(&provisioned));
-    //
-    // if (!provisioned) {
-    //     const char *service_name = "my_device";
-    //     const char *service_key = "password";  // AP password
-    //
-    //     wifi_prov_security_t security = WIFI_PROV_SECURITY_0;
-    //     const char *pop = "abcd1234"; // Proof-of-possession (used in security)
-    //
-    //     ESP_LOGI(TAG, "Starting HTTP provisioning via SoftAP...");
-    //     ESP_ERROR_CHECK(wifi_prov_mgr_start_provisioning(security, pop, service_name, service_key));
-    // } else {
-    //     ESP_LOGI(TAG, "Device already provisioned, starting Wi-Fi...");
-    //     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    //     ESP_ERROR_CHECK(esp_wifi_start());
-    // }
+        // Wi-Fi AP SSID
+        const char service_name[12];
+        get_device_service_name(service_name, sizeof(service_name));
+
+        const wifi_prov_security_t security = WIFI_PROV_SECURITY_0;
+        const char *pop = NULL;
+
+        wifi_prov_security1_params_t *sec_params = pop;
+
+        // const char *service_key = "mypassword";
+        const char *service_key = NULL;
+
+        /* Start provisioning service */
+        ESP_ERROR_CHECK(
+            wifi_prov_mgr_start_provisioning(security, (const void *) sec_params, service_name, service_key)
+        );
+    } else {
+        ESP_LOGI(TAG, "Already provisioned, starting Wi-Fi STA");
+
+        /* We don't need the manager as device is already provisioned,
+         * so let's release it's resources */
+        wifi_prov_mgr_deinit();
+
+        ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
+        /* Start Wi-Fi station */
+        wifi_init_sta();
+    }
+
+    /* Wait for Wi-Fi connection */
+    xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_EVENT, true, true, portMAX_DELAY);
 }
 
-bool is_connected(void) {
+bool is_wifi_connected(void) {
     return wifi_connected;
 }

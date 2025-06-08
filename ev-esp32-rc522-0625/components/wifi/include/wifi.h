@@ -3,4 +3,4 @@
 
 void init_wifi(void);
 
-bool is_connected(void);
+bool is_wifi_connected(void);
