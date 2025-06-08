@@ -1,0 +1,21 @@
+menu "MQTT Configuration"
+
+    config BROKER_URL
+        string "Broker URL"
+        default "mqtt://192.168.1.12:1883"
+        help
+            URL of the broker to connect to
+
+    config TELEMETRY_TOPIC_NAME
+        string "Telemetry topic name template"
+        default "/v1/devices/%s/telemetry"
+        help
+            Name of the telemetry topic
+
+    config REGISTRATION_TOPIC_NAME
+        string "Device registration topic name template"
+        default "/v1/devices/%s/register"
+        help
+            Name of the device registration topic
+
+endmenu

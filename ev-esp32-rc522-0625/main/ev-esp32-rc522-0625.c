@@ -1,8 +1,9 @@
 #include <stdio.h>
 #include "esp_log.h"
+#include "wifi.h"
 #include "rfid-adapter.h"
 #include "Arduino.h"
-#include "wifi.h"
+#include "mqtt-client.h"
 
 static const char *TAG = "ev-esp32-rc522-0625";
 
@@ -16,13 +17,15 @@ void rfid_card_handler(const byte* cardId) {
 
 void app_main(void)
 {
-    // Setup
+    // Setup Wi-Fi - blocking until connected to Wi-Fi
     init_wifi();
+
+    // Setup Arduino and rfid lib
     initArduino();
     init_rfid();
 
-    bool connected = is_wifi_connected();
-    ESP_LOGI(TAG, "WiFi connected: %s", connected ? "true" : "false");
+    // Setup MQTT client
+    mqtt_app_start();
 
     // Loop
     while (true) {
