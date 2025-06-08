@@ -2,6 +2,7 @@
 #include "esp_log.h"
 #include "rfid-adapter.h"
 #include "Arduino.h"
+#include "wifi.h"
 
 static const char *TAG = "ev-esp32-rc522-0625";
 
@@ -16,8 +17,12 @@ void rfid_card_handler(byte* cardId) {
 void app_main(void)
 {
     // Setup
+    init_wifi();
     initArduino();
     init_rfid();
+
+    bool connected = is_connected();
+    ESP_LOGI(TAG, "WiFi connected: %s", connected ? "true" : "false");
 
     // Loop
     while (true) {
