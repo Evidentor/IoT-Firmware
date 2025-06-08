@@ -44,6 +44,9 @@ __pycache__/
 *.a
 lib/
 
+# Keep local precompiled libs
+!components/rfid-lib-precompiled/lib/librfid.a
+
 # Other miscellaneous
 *.orig
 .DS_Store
