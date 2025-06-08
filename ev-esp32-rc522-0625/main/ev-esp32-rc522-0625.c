@@ -3,9 +3,26 @@
 #include "wifi.h"
 #include "rfid-adapter.h"
 #include "Arduino.h"
+#include "ev_buzzer.h"
 #include "mqtt-client.h"
 
 static const char *TAG = "ev-esp32-rc522-0625";
+
+void play_access_granted(void) {
+    buzzer_on();
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    buzzer_off();
+}
+
+void play_access_denied(void) {
+    for (int i = 0; i < 3; i++) {
+        buzzer_on();
+        vTaskDelay(pdMS_TO_TICKS(200));
+        buzzer_off();
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+}
+
 
 void bytes_to_hex_string(const byte *bytes, char *hex_str) {
     sprintf(hex_str, "%02X%02X%02X%02X", bytes[0], bytes[1], bytes[2], bytes[3]);
@@ -14,6 +31,7 @@ void bytes_to_hex_string(const byte *bytes, char *hex_str) {
 void rfid_card_handler(const byte* cardId) {
     char hex_str[4];
     bytes_to_hex_string(cardId, hex_str);
+    play_access_granted();
     ESP_LOGI(TAG, "Card ID: %s", hex_str);
 }
 
@@ -40,7 +58,11 @@ void app_main(void)
     // Setup MQTT client
     mqtt_app_start();
 
+    // Init buzzer
+    buzzer_init();
+
     ESP_LOGI(TAG, "Setup completed");
+    play_access_denied();
 
     // Loop
     while (true) {
