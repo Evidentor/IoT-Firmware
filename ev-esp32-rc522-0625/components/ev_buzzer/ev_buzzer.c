@@ -12,8 +12,8 @@
 #define LEDC_OUTPUT_IO          (BUZZER_GPIO) // Define the output GPIO
 #define LEDC_CHANNEL            LEDC_CHANNEL_0
 #define LEDC_DUTY_RES           LEDC_TIMER_10_BIT // Set duty resolution to 10 bits
-#define LEDC_DUTY               (64) // Set duty to 50%. (2 ** 10) * 6.25% = 64
-#define LEDC_FREQUENCY          (BUZZER_FREQ) // Frequency in Hertz. Set frequency at 2 kHz
+#define LEDC_DUTY               (64) // Set duty to 6.25%. (2 ** 10) * 6.25% = 64
+#define LEDC_FREQUENCY          (BUZZER_FREQ) // Frequency in Hertz.
 
 void buzzer_init(void) {
     // Prepare and then apply the LEDC PWM timer configuration
@@ -21,7 +21,7 @@ void buzzer_init(void) {
         .speed_mode       = LEDC_MODE,
         .duty_resolution  = LEDC_DUTY_RES,
         .timer_num        = LEDC_TIMER,
-        .freq_hz          = LEDC_FREQUENCY,  // Set output frequency at 2 kHz
+        .freq_hz          = LEDC_FREQUENCY,
         .clk_cfg          = LEDC_AUTO_CLK
     };
     ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
@@ -40,7 +40,7 @@ void buzzer_init(void) {
 }
 
 void buzzer_on(void) {
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, LEDC_DUTY)); // 50% duty cycle
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, LEDC_DUTY));
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
 }
 
