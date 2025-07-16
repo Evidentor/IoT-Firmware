@@ -4,7 +4,7 @@
 
 // TODO: Hardcoded pins for now, make this configurable
 #define SS_PIN 5
-#define RST_PIN 0
+#define RST_PIN 4
 
 static const char *TAG = "rfid-adapter";
 
